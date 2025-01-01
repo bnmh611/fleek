@@ -1,101 +1,274 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useState, useEffect, useCallback } from "react";
+
+const ROWS = 15;
+const COLS = 15;
+const GRID_SIZE = 30;
+
+// 0 = Empty, 1 = Destructible Brick, 2 = Indestructible Brick
+const INITIAL_MAZE: number[][] = [
+  [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+  [2, 0, 0, 0, 1, 1, 0, 2, 0, 1, 1, 0, 0, 0, 2],
+  [2, 0, 2, 0, 1, 1, 0, 2, 0, 1, 1, 0, 2, 0, 2],
+  [2, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 2],
+  [2, 1, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 1, 2],
+  [2, 1, 1, 0, 2, 2, 0, 2, 0, 2, 2, 0, 1, 1, 2],
+  [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2],
+  [2, 2, 2, 0, 2, 2, 0, 0, 0, 2, 2, 0, 2, 2, 2],
+  [2, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 2],
+  [2, 1, 1, 0, 2, 2, 0, 2, 0, 2, 2, 0, 1, 1, 2],
+  [2, 1, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 1, 2],
+  [2, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 2],
+  [2, 0, 2, 0, 1, 1, 0, 2, 0, 1, 1, 0, 2, 0, 2],
+  [2, 0, 0, 0, 1, 1, 0, 2, 0, 1, 1, 0, 0, 0, 2],
+  [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+];
+
+type Tank = {
+  x: number;
+  y: number;
+  direction: "UP" | "DOWN" | "LEFT" | "RIGHT";
+  alive: boolean;
+};
+
+type Bullet = {
+  x: number;
+  y: number;
+  direction: "UP" | "DOWN" | "LEFT" | "RIGHT";
+  player: keyof Tanks;
+};
+
+type Tanks = {
+  player1: Tank;
+  player2: Tank;
+};
+
+const INITIAL_TANKS: Tanks = {
+  player1: { x: 1, y: 1, direction: "DOWN", alive: true },
+  player2: { x: COLS - 2, y: ROWS - 2, direction: "UP", alive: true },
+};
+
+const DIRECTIONS = {
+  UP: { dx: 0, dy: -1 },
+  DOWN: { dx: 0, dy: 1 },
+  LEFT: { dx: -1, dy: 0 },
+  RIGHT: { dx: 1, dy: 0 },
+};
+
+const TankBattle: React.FC = () => {
+  const [maze, setMaze] = useState(INITIAL_MAZE);
+  const [tanks, setTanks] = useState<Tanks>(INITIAL_TANKS);
+  const [bullets, setBullets] = useState<Bullet[]>([]);
+
+  const moveTank = useCallback(
+    (player: keyof Tanks, direction: keyof typeof DIRECTIONS): void => {
+      if (!tanks[player].alive) return;
+      setTanks((prev) => {
+        const tank = prev[player];
+        const newX = tank.x + DIRECTIONS[direction].dx;
+        const newY = tank.y + DIRECTIONS[direction].dy;
+
+        if (
+          newX >= 0 &&
+          newX < COLS &&
+          newY >= 0 &&
+          newY < ROWS &&
+          maze[newY][newX] === 0
+        ) {
+          return {
+            ...prev,
+            [player]: { ...tank, x: newX, y: newY, direction },
+          };
+        }
+        return prev;
+      });
+    },
+    [maze, tanks]
+  );
+
+  const fireBullet = useCallback(
+    (player: keyof Tanks): void => {
+      if (!tanks[player].alive) return;
+      setBullets((prev) => [
+        ...prev,
+        {
+          x: tanks[player].x,
+          y: tanks[player].y,
+          direction: tanks[player].direction,
+          player,
+        },
+      ]);
+    },
+    [tanks]
+  );
+
+  const updateBullets = useCallback(() => {
+    setBullets((prev) =>
+      prev
+        .map((bullet) => {
+          const newX = bullet.x + DIRECTIONS[bullet.direction].dx;
+          const newY = bullet.y + DIRECTIONS[bullet.direction].dy;
+
+          if (newX < 0 || newX >= COLS || newY < 0 || newY >= ROWS) {
+            return null; // Bullet leaves the board
+          }
+
+          if (maze[newY][newX] === 1) {
+            // Hit a destructible brick
+            setMaze((prevMaze) => {
+              const newMaze = prevMaze.map((row) => [...row]);
+              newMaze[newY][newX] = 0;
+              return newMaze;
+            });
+            return null;
+          }
+
+          if (maze[newY][newX] === 2) {
+            // Hit an indestructible brick
+            return null;
+          }
+
+          if (
+            (tanks.player1.x === newX && tanks.player1.y === newY && tanks.player1.alive) ||
+            (tanks.player2.x === newX && tanks.player2.y === newY && tanks.player2.alive)
+          ) {
+            // Hit a tank
+            setTanks((prevTanks) => ({
+              ...prevTanks,
+              [bullet.player === "player1" ? "player2" : "player1"]: {
+                ...prevTanks[bullet.player === "player1" ? "player2" : "player1"],
+                alive: false,
+              },
+            }));
+            return null;
+          }
+
+          return { ...bullet, x: newX, y: newY };
+        })
+        .filter((bullet) => bullet !== null) as Bullet[]
+    );
+  }, [maze, tanks]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      switch (e.key) {
+        case "w":
+          moveTank("player1", "UP");
+          break;
+        case "s":
+          moveTank("player1", "DOWN");
+          break;
+        case "a":
+          moveTank("player1", "LEFT");
+          break;
+        case "d":
+          moveTank("player1", "RIGHT");
+          break;
+        case " ":
+          fireBullet("player1");
+          break;
+        case "ArrowUp":
+          moveTank("player2", "UP");
+          break;
+        case "ArrowDown":
+          moveTank("player2", "DOWN");
+          break;
+        case "ArrowLeft":
+          moveTank("player2", "LEFT");
+          break;
+        case "ArrowRight":
+          moveTank("player2", "RIGHT");
+          break;
+        case "Enter":
+          fireBullet("player2");
+          break;
+        default:
+          break;
+      }
+    },
+    [moveTank, fireBullet]
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
+  useEffect(() => {
+    const interval = setInterval(updateBullets, 100);
+    return () => clearInterval(interval);
+  }, [updateBullets]);
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "100vh",
+        backgroundColor: "#000",
+        color: "#fff",
+        textAlign: "center",
+      }}
+    >
+      <h1>Tank Battle</h1>
+      <div style={{ marginBottom: "20px" }}>
+        <p>
+          <strong>Controls:</strong>
+        </p>
+        <p>Player 1: W (Up), S (Down), A (Left), D (Right), Space (Fire)</p>
+        <p>Player 2: Arrow Keys (Move), Enter (Fire)</p>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${COLS}, ${GRID_SIZE}px)`,
+          gap: "1px",
+          backgroundColor: "black",
+        }}
+      >
+        {maze.map((row, rowIndex) =>
+          row.map((cell, colIndex) => {
+            const isPlayer1 =
+              tanks.player1.x === colIndex &&
+              tanks.player1.y === rowIndex &&
+              tanks.player1.alive;
+            const isPlayer2 =
+              tanks.player2.x === colIndex &&
+              tanks.player2.y === rowIndex &&
+              tanks.player2.alive;
+            const isBullet = bullets.some(
+              (bullet) => bullet.x === colIndex && bullet.y === rowIndex
+            );
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+            return (
+              <div
+                key={`${rowIndex}-${colIndex}`}
+                style={{
+                  width: GRID_SIZE,
+                  height: GRID_SIZE,
+                  backgroundColor:
+                    cell === 2
+                      ? "gray" // Indestructible Brick
+                      : cell === 1
+                      ? "orange" // Destructible Brick
+                      : isPlayer1
+                      ? "blue" // Player 1
+                      : isPlayer2
+                      ? "red" // Player 2
+                      : isBullet
+                      ? "yellow" // Bullet
+                      : "#333", // Empty
+                }}
+              />
+            );
+          })
+        )}
+      </div>
     </div>
   );
-}
+};
+
+export default TankBattle;
